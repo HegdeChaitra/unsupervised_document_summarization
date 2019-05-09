@@ -20,6 +20,7 @@ import unicodedata
 import string
 import re
 import random
+import io
 
 from torch import optim
 import time
@@ -28,6 +29,7 @@ UNK_IDX = 2
 PAD_IDX = 3
 SOS_token = 0
 EOS_token = 1
+OFFSET = 4
 
 def read_dataset(file):
     print("reading dataset")
@@ -39,15 +41,38 @@ def read_dataset(file):
     df['data'] = list_l
     return df
 
+def load_fasttext_vectors(fname, vocab_size):
+    word2idx = {"SOS":0, "EOS":1, "UNK":2, "PAD":3}
+    idx2word = ["SOS", "EOS", "UNK", "PAD"]
+    fin = io.open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
+    n, d = map(int, fin.readline().split())
+    vecs = [list(np.random.randn(300)) for i in range(4)]
+    idx = OFFSET
+    for line in fin:
+        tokens = line.rstrip().split(' ')
+        word2idx[tokens[0]] = idx
+        idx2word.append(tokens[0])
+        vecs.append(list(map(float, tokens[1:])))
+        idx += 1
+
+        # Stop after loading first vocab_size vectors
+        if idx == vocab_size + OFFSET:
+            break
+
+
+        # data[tokens[0]] = map(float, tokens[1:])
+    return vecs, word2idx, idx2word
+
+# OOV count?
 class Lang:
-    def __init__(self, name, minimum_count = 5):
+    def __init__(self, name, word2index, index2word):
         self.name = name
-        self.word2index = {}
+        self.word2index = word2index
         self.word2count = {}
 #         self.index2word = {0: "SOS", 1: "EOS", 2:"UKN",3:"PAD"}
-        self.index2word = ["SOS","EOS","UKN","PAD"]
+        self.index2word = index2word
         self.n_words = 4  # Count SOS and EOS
-        self.minimum_count = minimum_count
+        self.oov_words = 0
 
     def addSentence(self, sentence):
         for word in sentence.split(' '):
@@ -56,16 +81,19 @@ class Lang:
 #                 self.addWord(word.lower())
 
     def addWord(self, word):
+        # Total number of words
+        self.n_words += 1
+
+        # Distribution of words
         if word not in self.word2count:
             self.word2count[word] = 1
         else:
             self.word2count[word] += 1
-        if self.word2count[word] >= self.minimum_count:
-            if word not in self.word2index:
-                self.word2index[word] = self.n_words
-    #             self.index2word[self.n_words] = word
-                self.index2word.append(word)
-                self.n_words += 1
+
+        # Out-of-vocabulary words (words not in fasttext)
+        if word not in self.word2index:
+            self.oov_words += 1
+
             
             
 def split(df):
@@ -91,7 +119,7 @@ def token2index_dataset(df,en_lang,vi_lang):
     return df
 
 
-def train_val_load(MAX_LEN, old_lang_obj, path):
+def train_val_load(MAX_LEN, old_lang_obj, path, vocab_size, fasttext_en, fasttext_pi):
     en_train = read_dataset(path+"/es-en-sample/train.tok.en")
     en_val = read_dataset(path+"/es-en-sample/dev.tok.en")
     en_test = read_dataset(path+"/es-en-sample/test.tok.en")
@@ -99,6 +127,8 @@ def train_val_load(MAX_LEN, old_lang_obj, path):
     vi_train = read_dataset(path+"/es-en-sample/train.tok.es")
     vi_val = read_dataset(path+"/es-en-sample/dev.tok.es")
     vi_test = read_dataset(path+"/es-en-sample/test.tok.es")
+
+
     
     train = pd.DataFrame()
     train['en_data'] = en_train['data']
@@ -111,21 +141,28 @@ def train_val_load(MAX_LEN, old_lang_obj, path):
     test = pd.DataFrame()
     test['en_data'] = en_test['data']
     test['vi_data'] = vi_test['data']
-    
-    
+
+    # Load old language objects
     if old_lang_obj:
         with open(old_lang_obj,'rb') as f:
             en_lang = pickle.load(f)
             vi_lang = pickle.load(f)
     else:
-        en_lang = Lang("en")
+        # Load fasttext vectors
+        en_vecs, en_word2idx, en_idx2word = load_fasttext_vectors(fasttext_en, vocab_size)
+        vi_vecs, es_word2idx, es_idx2word = load_fasttext_vectors(fasttext_pi, vocab_size)
+
+        # Create language objects
+        en_lang = Lang("en", en_word2idx, en_idx2word)
+        vi_lang = Lang("es", es_word2idx, es_idx2word)
+        
         for ex in train['en_data']:
             en_lang.addSentence(ex)
     
-        vi_lang = Lang("es")
         for ex in train['vi_data']:
             vi_lang.addSentence(ex)
         
+        # Save language objects
         with open("es_en_lang_sample_obj.pkl",'wb') as f:
             pickle.dump(en_lang, f)
             pickle.dump(vi_lang, f)
@@ -161,4 +198,4 @@ def train_val_load(MAX_LEN, old_lang_obj, path):
 #     val = val[np.logical_and(val['en_len']>=2,val['vi_len']>=2)]
 #     val = val[val['vi_len']<=MAX_LEN]
     
-    return train,val,test, en_lang,vi_lang
+    return train,val,test, en_lang,vi_lang, en_vecs, vi_vecs
