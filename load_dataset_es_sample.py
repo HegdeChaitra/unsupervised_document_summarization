@@ -46,7 +46,7 @@ def load_fasttext_vectors(fname, vocab_size):
     idx2word = ["SOS", "EOS", "UNK", "PAD"]
     fin = io.open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
     n, d = map(int, fin.readline().split())
-    vecs = [list(np.random.randn(300)) for i in range(4)]
+    vecs = [list(0.01 * np.random.randn(300)) for i in range(4)]
     idx = OFFSET
     for line in fin:
         tokens = line.rstrip().split(' ')
@@ -63,16 +63,18 @@ def load_fasttext_vectors(fname, vocab_size):
         # data[tokens[0]] = map(float, tokens[1:])
     return vecs, word2idx, idx2word
 
-# OOV count?
+# Modify so OOV are included 
 class Lang:
-    def __init__(self, name, word2index, index2word):
+    def __init__(self, name, word2index, index2word, vecs, minimum_count=1):
         self.name = name
         self.word2index = word2index
         self.word2count = {}
+        self.vecs = vecs
 #         self.index2word = {0: "SOS", 1: "EOS", 2:"UKN",3:"PAD"}
         self.index2word = index2word
-        self.n_words = 4  # Count SOS and EOS
+        self.n_words = len(index2word) # Number of words added already
         self.oov_words = 0
+        self.minimum_count = minimum_count
 
     def addSentence(self, sentence):
         for word in sentence.split(' '):
@@ -82,17 +84,20 @@ class Lang:
 
     def addWord(self, word):
         # Total number of words
-        self.n_words += 1
 
         # Distribution of words
         if word not in self.word2count:
             self.word2count[word] = 1
         else:
             self.word2count[word] += 1
+        # If word has appeared more than minimum count times and is not already in the vocabulary
+        if self.word2count[word] >= self.minimum_count:
+            if word not in self.word2index:
+                self.word2index[word] = self.n_words
+                self.index2word.append(word)
+                self.vecs.append(list(0.01 * np.random.randn(300)))
+                self.n_words += 1
 
-        # Out-of-vocabulary words (words not in fasttext)
-        if word not in self.word2index:
-            self.oov_words += 1
 
             
             
@@ -120,13 +125,13 @@ def token2index_dataset(df,en_lang,vi_lang):
 
 
 def train_val_load(MAX_LEN, old_lang_obj, path, vocab_size, fasttext_en, fasttext_pi):
-    en_train = read_dataset(path+"/es-en-sample/train.tok.en")
-    en_val = read_dataset(path+"/es-en-sample/dev.tok.en")
-    en_test = read_dataset(path+"/es-en-sample/test.tok.en")
+    en_train = read_dataset(path+"/es-en-batch/train.tok.en")
+    en_val = read_dataset(path+"/es-en-batch/dev.tok.en")
+    en_test = read_dataset(path+"/es-en-batch/test.tok.en")
     
-    vi_train = read_dataset(path+"/es-en-sample/train.tok.es")
-    vi_val = read_dataset(path+"/es-en-sample/dev.tok.es")
-    vi_test = read_dataset(path+"/es-en-sample/test.tok.es")
+    vi_train = read_dataset(path+"/es-en-batch/train.tok.es")
+    vi_val = read_dataset(path+"/es-en-batch/dev.tok.es")
+    vi_test = read_dataset(path+"/es-en-batch/test.tok.es")
 
 
     
@@ -153,8 +158,8 @@ def train_val_load(MAX_LEN, old_lang_obj, path, vocab_size, fasttext_en, fasttex
         vi_vecs, es_word2idx, es_idx2word = load_fasttext_vectors(fasttext_pi, vocab_size)
 
         # Create language objects
-        en_lang = Lang("en", en_word2idx, en_idx2word)
-        vi_lang = Lang("es", es_word2idx, es_idx2word)
+        en_lang = Lang("en", en_word2idx, en_idx2word, en_vecs)
+        vi_lang = Lang("es", es_word2idx, es_idx2word, vi_vecs)
         
         for ex in train['en_data']:
             en_lang.addSentence(ex)
@@ -163,7 +168,7 @@ def train_val_load(MAX_LEN, old_lang_obj, path, vocab_size, fasttext_en, fasttex
             vi_lang.addSentence(ex)
         
         # Save language objects
-        with open("es_en_lang_sample_obj.pkl",'wb') as f:
+        with open("es_en_lang_batch_obj.pkl",'wb') as f:
             pickle.dump(en_lang, f)
             pickle.dump(vi_lang, f)
             
