@@ -64,7 +64,7 @@ def load_fasttext_vectors(fname, vocab_size):
     return vecs, word2idx, idx2word
 
 # Modify so OOV are included 
-class Lang:
+class LangWithFastText:
     def __init__(self, name, word2index, index2word, vecs, minimum_count=1):
         self.name = name
         self.word2index = word2index
@@ -97,6 +97,36 @@ class Lang:
                 self.index2word.append(word)
                 self.vecs.append(list(0.01 * np.random.randn(300)))
                 self.n_words += 1
+
+                
+class Lang:
+    def __init__(self, name, minimum_count = 1):
+        self.name = name
+        self.word2index = {}
+        self.word2count = {}
+#         self.index2word = {0: "SOS", 1: "EOS", 2:"UKN",3:"PAD"}
+        self.index2word = ["SOS","EOS","UKN","PAD"]
+        self.n_words = 4  # Count SOS and EOS
+        self.minimum_count = minimum_count
+
+    def addSentence(self, sentence):
+        for word in sentence.split(' '):
+            self.addWord(word.lower())
+#             if word not in string.punctuation:
+#                 self.addWord(word.lower())
+
+    def addWord(self, word):
+        if word not in self.word2count:
+            self.word2count[word] = 1
+        else:
+            self.word2count[word] += 1
+        if self.word2count[word] >= self.minimum_count:
+            if word not in self.word2index:
+                self.word2index[word] = self.n_words
+    #             self.index2word[self.n_words] = word
+                self.index2word.append(word)
+                self.n_words += 1
+            
 
 
             
@@ -158,8 +188,8 @@ def train_val_load(MAX_LEN, old_lang_obj, path, vocab_size, fasttext_en, fasttex
         vi_vecs, es_word2idx, es_idx2word = load_fasttext_vectors(fasttext_pi, vocab_size)
 
         # Create language objects
-        en_lang = Lang("en", en_word2idx, en_idx2word, en_vecs)
-        vi_lang = Lang("es", es_word2idx, es_idx2word, vi_vecs)
+        en_lang = Lang("en")
+        vi_lang = Lang("es")
         
         for ex in train['en_data']:
             en_lang.addSentence(ex)
@@ -168,7 +198,7 @@ def train_val_load(MAX_LEN, old_lang_obj, path, vocab_size, fasttext_en, fasttex
             vi_lang.addSentence(ex)
         
         # Save language objects
-        with open("es_en_lang_batch_obj.pkl",'wb') as f:
+        with open("es_en_lang_obj.pkl",'wb') as f:
             pickle.dump(en_lang, f)
             pickle.dump(vi_lang, f)
             
